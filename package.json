@@ -1,0 +1,54 @@
+{
+  "name": "mardoc",
+  "displayName": "MarDoc",
+  "description": "Rich markdown editing and GitHub PR review in VS Code",
+  "version": "0.0.1",
+  "publisher": "mardoc",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mardoc.open",
+        "title": "MarDoc: Open"
+      },
+      {
+        "command": "mardoc.openFile",
+        "title": "Edit with MarDoc"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mardoc.openFile",
+          "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "mardoc.openFile",
+          "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "npm run compile && vsce package",
+    "publish": "npm run compile && vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.2",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.3.0"
+  }
+}
