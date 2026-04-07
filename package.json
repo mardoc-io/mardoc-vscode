@@ -37,7 +37,15 @@
           "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown"
         }
       ]
-    }
+    },
+    "keybindings": [
+      { "command": "editor.action.clipboardCopyAction", "key": "ctrl+c", "mac": "cmd+c", "when": "webviewId == 'mardoc'" },
+      { "command": "editor.action.clipboardPasteAction", "key": "ctrl+v", "mac": "cmd+v", "when": "webviewId == 'mardoc'" },
+      { "command": "editor.action.clipboardCutAction", "key": "ctrl+x", "mac": "cmd+x", "when": "webviewId == 'mardoc'" },
+      { "command": "undo", "key": "ctrl+z", "mac": "cmd+z", "when": "webviewId == 'mardoc'" },
+      { "command": "redo", "key": "ctrl+shift+z", "mac": "cmd+shift+z", "when": "webviewId == 'mardoc'" },
+      { "command": "editor.action.selectAll", "key": "ctrl+a", "mac": "cmd+a", "when": "webviewId == 'mardoc'" }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",
