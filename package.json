@@ -1,7 +1,7 @@
 {
   "name": "mardoc",
   "displayName": "MarDoc",
-  "description": "Rich markdown editing and GitHub PR review in VS Code",
+  "description": "Rich document editing and GitHub PR review in VS Code",
   "version": "0.0.2",
   "publisher": "mardoc",
   "engines": {
@@ -27,14 +27,14 @@
       "explorer/context": [
         {
           "command": "mardoc.openFile",
-          "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown",
+          "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown || resourceExtname == .html || resourceExtname == .htm",
           "group": "navigation"
         }
       ],
       "editor/title/context": [
         {
           "command": "mardoc.openFile",
-          "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown"
+          "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown || resourceExtname == .html || resourceExtname == .htm"
         }
       ]
     },
