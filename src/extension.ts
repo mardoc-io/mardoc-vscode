@@ -127,6 +127,16 @@ export function activate(context: vscode.ExtensionContext) {
 function getWebviewHtml(initPayload: string, hash: string, query: string): string {
   const base = query ? `https://mardoc.app/?${query}` : 'https://mardoc.app';
   const src = hash ? `${base}${hash}` : base;
+  // JSON.stringify escapes quotes and backslashes but NOT `</script>`
+  // or `<!--`. The payload is interpolated directly into a <script>
+  // block below, so a user-supplied file whose content includes
+  // `</script>` would prematurely close the script tag and break the
+  // whole webview. Escape both sequences before inlining. HTML files
+  // commonly contain `</script>`; markdown files almost never do,
+  // which is why only HTML files were failing to load.
+  const safeInitPayload = initPayload
+    .replace(/<\/script/gi, '<\\/script')
+    .replace(/<!--/g, '<\\!--');
   return /*html*/`<!DOCTYPE html>
 <html style="margin:0;padding:0;height:100%;width:100%;">
 <head>
@@ -141,7 +151,7 @@ function getWebviewHtml(initPayload: string, hash: string, query: string): strin
   <script>
     const vscodeApi = acquireVsCodeApi();
     const iframe = document.getElementById('mardoc');
-    const initPayload = ${initPayload};
+    const initPayload = ${safeInitPayload};
 
     // Send init when iframe signals ready, or retry on iframe load
     let initSent = false;

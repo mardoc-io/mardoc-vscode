@@ -2,7 +2,7 @@
   "name": "mardoc",
   "displayName": "MarDoc",
   "description": "Rich document editing and GitHub PR review in VS Code",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "mardoc",
   "engines": {
     "vscode": "^1.85.0"
