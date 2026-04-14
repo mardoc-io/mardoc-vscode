@@ -32,6 +32,14 @@ function setupPanel(
       await vscode.workspace.fs.writeFile(fileUri, bytes);
       vscode.window.showInformationMessage(`Saved ${msg.filePath}`);
     }
+
+    // Cmd+W bridge: the iframe catches Cmd+W and posts this message
+    // because VS Code's keybinding-for-webview system doesn't route
+    // close-editor commands reliably. Disposing the panel directly
+    // from the extension host is the cleanest path.
+    if (msg.type === 'close-panel') {
+      panel.dispose();
+    }
   });
 }
 
@@ -173,7 +181,7 @@ function getWebviewHtml(initPayload: string, hash: string, query: string): strin
         iframe.contentWindow.postMessage(msg, '*');
       }
       // Forward app messages → extension host
-      if (msg.type === 'open-external' || msg.type === 'file:save') {
+      if (msg.type === 'open-external' || msg.type === 'file:save' || msg.type === 'close-panel') {
         vscodeApi.postMessage(msg);
       }
     });

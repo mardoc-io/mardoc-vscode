@@ -2,7 +2,7 @@
   "name": "mardoc",
   "displayName": "MarDoc",
   "description": "Rich document editing and GitHub PR review in VS Code",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "publisher": "mardoc",
   "engines": {
     "vscode": "^1.85.0"
@@ -39,12 +39,13 @@
       ]
     },
     "keybindings": [
-      { "command": "editor.action.clipboardCopyAction", "key": "ctrl+c", "mac": "cmd+c", "when": "webviewId == 'mardoc'" },
-      { "command": "editor.action.clipboardPasteAction", "key": "ctrl+v", "mac": "cmd+v", "when": "webviewId == 'mardoc'" },
-      { "command": "editor.action.clipboardCutAction", "key": "ctrl+x", "mac": "cmd+x", "when": "webviewId == 'mardoc'" },
-      { "command": "undo", "key": "ctrl+z", "mac": "cmd+z", "when": "webviewId == 'mardoc'" },
-      { "command": "redo", "key": "ctrl+shift+z", "mac": "cmd+shift+z", "when": "webviewId == 'mardoc'" },
-      { "command": "editor.action.selectAll", "key": "ctrl+a", "mac": "cmd+a", "when": "webviewId == 'mardoc'" }
+      { "command": "editor.action.clipboardCopyAction", "key": "ctrl+c", "mac": "cmd+c", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "editor.action.clipboardPasteAction", "key": "ctrl+v", "mac": "cmd+v", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "editor.action.clipboardCutAction", "key": "ctrl+x", "mac": "cmd+x", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "undo", "key": "ctrl+z", "mac": "cmd+z", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "redo", "key": "ctrl+shift+z", "mac": "cmd+shift+z", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "editor.action.selectAll", "key": "ctrl+a", "mac": "cmd+a", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "workbench.action.closeActiveEditor", "key": "ctrl+w", "mac": "cmd+w", "when": "activeWebviewPanelId == 'mardoc'" }
     ]
   },
   "scripts": {
