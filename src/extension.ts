@@ -1,11 +1,24 @@
 import * as vscode from 'vscode';
-import { getGitContext } from './git-context';
+import { getGitContext, getRepoRootForFile } from './git-context';
 
-/** Shared setup for a MarDoc webview panel: theme sync, message handling. */
+/**
+ * Shared setup for a MarDoc webview panel: theme sync, message handling.
+ *
+ * `baseUri` is the root that workspace-relative paths from the app
+ * (save targets, image reads) resolve against. For `openFile`, callers
+ * pass the git repo root of the opened file — not `workspaceFolders[0]`,
+ * which in multi-root workspaces is almost always a sibling repo and
+ * would make `docs/images/x.png` look in the wrong place. For the plain
+ * `open` command (no specific file) we fall back to `workspaceFolders[0]`.
+ */
 function setupPanel(
   panel: vscode.WebviewPanel,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
+  baseUri?: vscode.Uri
 ): void {
+  const resolveBase = (): vscode.Uri | undefined =>
+    baseUri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+
   // Sync VS Code theme changes → iframe
   context.subscriptions.push(
     vscode.window.onDidChangeActiveColorTheme((theme) => {
@@ -22,15 +35,49 @@ function setupPanel(
     }
 
     if (msg.type === 'file:save' && msg.filePath && msg.content !== undefined) {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!workspaceFolder) {
+      const base = resolveBase();
+      if (!base) {
         vscode.window.showErrorMessage('No workspace folder open — cannot save file.');
         return;
       }
-      const fileUri = vscode.Uri.joinPath(workspaceFolder, msg.filePath);
+      const fileUri = vscode.Uri.joinPath(base, msg.filePath);
       const bytes = Buffer.from(msg.content, 'utf-8');
       await vscode.workspace.fs.writeFile(fileUri, bytes);
       vscode.window.showInformationMessage(`Saved ${msg.filePath}`);
+    }
+
+    // Local image reader. The app posts a request whenever a markdown
+    // file references a relative image path (e.g. `./images/arch.png`);
+    // the browser has no filesystem access so we read the bytes here
+    // and send back a base64 data payload. Path is workspace-relative
+    // and has already been resolved against the containing file's dir
+    // by the app (see src/lib/github-api.ts → loadEmbedLocalImages).
+    if (msg.type === 'file:read-image' && typeof msg.requestId === 'string' && typeof msg.path === 'string') {
+      try {
+        const base = resolveBase();
+        if (!base) {
+          panel.webview.postMessage({
+            type: 'file:image-error',
+            requestId: msg.requestId,
+            error: 'No workspace folder open',
+          });
+          return;
+        }
+        const fileUri = vscode.Uri.joinPath(base, msg.path);
+        const bytes = await vscode.workspace.fs.readFile(fileUri);
+        panel.webview.postMessage({
+          type: 'file:image-data',
+          requestId: msg.requestId,
+          data: Buffer.from(bytes).toString('base64'),
+          mimeType: mimeTypeForPath(msg.path),
+        });
+      } catch (err) {
+        panel.webview.postMessage({
+          type: 'file:image-error',
+          requestId: msg.requestId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     // Cmd+W bridge: the iframe catches Cmd+W and posts this message
@@ -41,6 +88,22 @@ function setupPanel(
       panel.dispose();
     }
   });
+}
+
+function mimeTypeForPath(p: string): string {
+  const ext = p.toLowerCase().split('.').pop() ?? '';
+  switch (ext) {
+    case 'png': return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    case 'svg': return 'image/svg+xml';
+    case 'webp': return 'image/webp';
+    case 'avif': return 'image/avif';
+    case 'bmp': return 'image/bmp';
+    case 'ico': return 'image/x-icon';
+    default: return 'application/octet-stream';
+  }
 }
 
 async function getAuthToken(): Promise<string | undefined> {
@@ -79,7 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
       theme: isDarkTheme() ? 'dark' : 'light',
     });
 
-    panel.webview.html = getWebviewHtml(initPayload, '', 'embed=true');
+    panel.webview.html = getWebviewHtml(initPayload, '', 'embed=true', getAppBaseUrl());
     setupPanel(panel, context);
   });
 
@@ -91,10 +154,16 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    const gitContext = getGitContext();
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const relativePath = workspaceFolder
-      ? fileUri.fsPath.replace(workspaceFolder + '/', '')
+    // Resolve git context AND relative path against the workspace
+    // folder that actually contains this file — not workspaceFolders[0].
+    // VS Code commonly has multiple workspace folders, and using the
+    // first one produces (a) the wrong owner/repo from a sibling repo's
+    // git remote and (b) an absolute fsPath as filePath, which breaks
+    // image resolution downstream in MarDoc.
+    const gitContext = getGitContext(fileUri);
+    const repoRoot = getRepoRootForFile(fileUri);
+    const relativePath = repoRoot && fileUri.fsPath.startsWith(repoRoot + '/')
+      ? fileUri.fsPath.slice(repoRoot.length + 1)
       : fileUri.fsPath;
 
     const token = await getAuthToken();
@@ -125,15 +194,38 @@ export function activate(context: vscode.ExtensionContext) {
       { enableScripts: true, retainContextWhenHidden: true }
     );
 
-    panel.webview.html = getWebviewHtml(initPayload, hash, 'embed=true');
-    setupPanel(panel, context);
+    // Pin the panel's base URI to the git repo root of the opened file.
+    // The app sends workspace-relative paths for save and image reads
+    // (see `filePath` in init above — it's already `fileUri.fsPath`
+    // sliced against `repoRoot`). Resolving those against the matching
+    // root keeps the bridge honest in multi-root workspaces.
+    const baseUri = repoRoot ? vscode.Uri.file(repoRoot) : undefined;
+    panel.webview.html = getWebviewHtml(initPayload, hash, 'embed=true', getAppBaseUrl());
+    setupPanel(panel, context, baseUri);
   });
 
   context.subscriptions.push(command, openFileCommand);
 }
 
-function getWebviewHtml(initPayload: string, hash: string, query: string): string {
-  const base = query ? `https://mardoc.app/?${query}` : 'https://mardoc.app';
+/**
+ * Resolve the MarDoc web app URL the webview should load. Defaults
+ * to https://mardoc.app, but is overridable via the `mardoc.appUrl`
+ * workspace setting so a developer can point at a local
+ * `npm run dev` server (http://localhost:3000) without rebuilding
+ * the extension.
+ */
+function getAppBaseUrl(): string {
+  const configured = vscode.workspace
+    .getConfiguration('mardoc')
+    .get<string>('appUrl');
+  if (configured && configured.trim().length > 0) {
+    return configured.replace(/\/$/, '');
+  }
+  return 'https://mardoc.app';
+}
+
+function getWebviewHtml(initPayload: string, hash: string, query: string, appBase: string): string {
+  const base = query ? `${appBase}/?${query}` : appBase;
   const src = hash ? `${base}${hash}` : base;
   // JSON.stringify escapes quotes and backslashes but NOT `</script>`
   // or `<!--`. The payload is interpolated directly into a <script>
@@ -176,12 +268,12 @@ function getWebviewHtml(initPayload: string, hash: string, query: string): strin
       if (msg.type === 'ready') {
         sendInit();
       }
-      // Forward theme changes from extension host → iframe
-      if (msg.type === 'theme:change') {
+      // Forward extension host → iframe
+      if (msg.type === 'theme:change' || msg.type === 'file:image-data' || msg.type === 'file:image-error') {
         iframe.contentWindow.postMessage(msg, '*');
       }
-      // Forward app messages → extension host
-      if (msg.type === 'open-external' || msg.type === 'file:save' || msg.type === 'close-panel') {
+      // Forward iframe → extension host
+      if (msg.type === 'open-external' || msg.type === 'file:save' || msg.type === 'close-panel' || msg.type === 'file:read-image') {
         vscodeApi.postMessage(msg);
       }
     });

@@ -2,7 +2,7 @@
   "name": "mardoc",
   "displayName": "MarDoc",
   "description": "Rich document editing and GitHub PR review in VS Code",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "publisher": "mardoc",
   "engines": {
     "vscode": "^1.85.0"
@@ -46,7 +46,17 @@
       { "command": "redo", "key": "ctrl+shift+z", "mac": "cmd+shift+z", "when": "activeWebviewPanelId == 'mardoc'" },
       { "command": "editor.action.selectAll", "key": "ctrl+a", "mac": "cmd+a", "when": "activeWebviewPanelId == 'mardoc'" },
       { "command": "workbench.action.closeActiveEditor", "key": "ctrl+w", "mac": "cmd+w", "when": "activeWebviewPanelId == 'mardoc'" }
-    ]
+    ],
+    "configuration": {
+      "title": "MarDoc",
+      "properties": {
+        "mardoc.appUrl": {
+          "type": "string",
+          "default": "https://mardoc.app",
+          "description": "Base URL of the MarDoc web app the extension loads in its webview. Set to `http://localhost:3000` to test against a local `npm run dev` server."
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",
