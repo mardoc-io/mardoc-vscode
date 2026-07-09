@@ -21,6 +21,10 @@
       {
         "command": "mardoc.openFile",
         "title": "Edit with MarDoc"
+      },
+      {
+        "command": "mardoc.reloadFile",
+        "title": "MarDoc: Reload File"
       }
     ],
     "menus": {
@@ -45,7 +49,8 @@
       { "command": "undo", "key": "ctrl+z", "mac": "cmd+z", "when": "activeWebviewPanelId == 'mardoc'" },
       { "command": "redo", "key": "ctrl+shift+z", "mac": "cmd+shift+z", "when": "activeWebviewPanelId == 'mardoc'" },
       { "command": "editor.action.selectAll", "key": "ctrl+a", "mac": "cmd+a", "when": "activeWebviewPanelId == 'mardoc'" },
-      { "command": "workbench.action.closeActiveEditor", "key": "ctrl+w", "mac": "cmd+w", "when": "activeWebviewPanelId == 'mardoc'" }
+      { "command": "workbench.action.closeActiveEditor", "key": "ctrl+w", "mac": "cmd+w", "when": "activeWebviewPanelId == 'mardoc'" },
+      { "command": "mardoc.reloadFile", "key": "ctrl+shift+r", "mac": "cmd+shift+r", "when": "activeWebviewPanelId == 'mardoc'" }
     ],
     "configuration": {
       "title": "MarDoc",

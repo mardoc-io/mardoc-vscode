@@ -2,6 +2,36 @@ import * as vscode from 'vscode';
 import { getGitContext, getRepoRootForFile } from './git-context';
 
 /**
+ * File-backed panels, tracked so reload (keybinding, command palette, or
+ * the app's `file:reload` message) knows which file to re-read. Panels
+ * opened via plain `mardoc.open` (repo browser, no file) are not tracked
+ * — reload is a no-op for them.
+ */
+const panelFiles = new Map<vscode.WebviewPanel, { uri: vscode.Uri; relativePath: string }>();
+
+/**
+ * Re-read a panel's file from disk and push the fresh content to the
+ * app as a `file:content` message (feature 040 in the app repo).
+ */
+async function reloadPanelFile(panel: vscode.WebviewPanel): Promise<void> {
+  const file = panelFiles.get(panel);
+  if (!file) return;
+  try {
+    const bytes = await vscode.workspace.fs.readFile(file.uri);
+    panel.webview.postMessage({
+      type: 'file:content',
+      filePath: file.relativePath,
+      fileName: file.relativePath.split('/').pop() ?? 'untitled',
+      fileContent: Buffer.from(bytes).toString('utf-8'),
+    });
+  } catch (err) {
+    vscode.window.showErrorMessage(
+      `MarDoc: could not reload ${file.relativePath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+/**
  * Shared setup for a MarDoc webview panel: theme sync, message handling.
  *
  * `baseUri` is the root that workspace-relative paths from the app
@@ -14,10 +44,16 @@ import { getGitContext, getRepoRootForFile } from './git-context';
 function setupPanel(
   panel: vscode.WebviewPanel,
   context: vscode.ExtensionContext,
-  baseUri?: vscode.Uri
+  baseUri?: vscode.Uri,
+  fileInfo?: { uri: vscode.Uri; relativePath: string }
 ): void {
   const resolveBase = (): vscode.Uri | undefined =>
     baseUri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+
+  if (fileInfo) {
+    panelFiles.set(panel, fileInfo);
+    panel.onDidDispose(() => panelFiles.delete(panel));
+  }
 
   // Sync VS Code theme changes → iframe
   context.subscriptions.push(
@@ -86,6 +122,12 @@ function setupPanel(
     // from the extension host is the cleanest path.
     if (msg.type === 'close-panel') {
       panel.dispose();
+    }
+
+    // Reload bridge: the iframe catches Ctrl/Cmd+Shift+R and asks for
+    // the file's current disk content.
+    if (msg.type === 'file:reload') {
+      await reloadPanelFile(panel);
     }
   });
 }
@@ -201,10 +243,22 @@ export function activate(context: vscode.ExtensionContext) {
     // root keeps the bridge honest in multi-root workspaces.
     const baseUri = repoRoot ? vscode.Uri.file(repoRoot) : undefined;
     panel.webview.html = getWebviewHtml(initPayload, hash, 'embed=true', getAppBaseUrl());
-    setupPanel(panel, context, baseUri);
+    setupPanel(panel, context, baseUri, { uri: fileUri, relativePath });
   });
 
-  context.subscriptions.push(command, openFileCommand);
+  // Command: re-read the active panel's file from disk. Bound to
+  // Ctrl/Cmd+Shift+R while a MarDoc panel is active; the in-iframe
+  // keydown handler covers the same chord when focus is inside the app.
+  const reloadCommand = vscode.commands.registerCommand('mardoc.reloadFile', async () => {
+    const active = [...panelFiles.keys()].find((p) => p.active);
+    if (!active) {
+      vscode.window.showInformationMessage('No active MarDoc file panel to reload.');
+      return;
+    }
+    await reloadPanelFile(active);
+  });
+
+  context.subscriptions.push(command, openFileCommand, reloadCommand);
 }
 
 /**
@@ -269,11 +323,11 @@ function getWebviewHtml(initPayload: string, hash: string, query: string, appBas
         sendInit();
       }
       // Forward extension host → iframe
-      if (msg.type === 'theme:change' || msg.type === 'file:image-data' || msg.type === 'file:image-error') {
+      if (msg.type === 'theme:change' || msg.type === 'file:image-data' || msg.type === 'file:image-error' || msg.type === 'file:content') {
         iframe.contentWindow.postMessage(msg, '*');
       }
       // Forward iframe → extension host
-      if (msg.type === 'open-external' || msg.type === 'file:save' || msg.type === 'close-panel' || msg.type === 'file:read-image') {
+      if (msg.type === 'open-external' || msg.type === 'file:save' || msg.type === 'close-panel' || msg.type === 'file:read-image' || msg.type === 'file:reload') {
         vscodeApi.postMessage(msg);
       }
     });
