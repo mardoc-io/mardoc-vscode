@@ -24,7 +24,8 @@
       },
       {
         "command": "mardoc.reloadFile",
-        "title": "MarDoc: Reload File"
+        "title": "MarDoc: Reload File",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -32,6 +33,13 @@
         {
           "command": "mardoc.openFile",
           "when": "resourceExtname == .md || resourceExtname == .mdx || resourceExtname == .markdown || resourceExtname == .html || resourceExtname == .htm",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "mardoc.reloadFile",
+          "when": "activeWebviewPanelId == 'mardoc'",
           "group": "navigation"
         }
       ],

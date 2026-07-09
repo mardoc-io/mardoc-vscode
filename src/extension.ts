@@ -7,19 +7,37 @@ import { getGitContext, getRepoRootForFile } from './git-context';
  * opened via plain `mardoc.open` (repo browser, no file) are not tracked
  * — reload is a no-op for them.
  */
-const panelFiles = new Map<vscode.WebviewPanel, { uri: vscode.Uri; relativePath: string }>();
+const panelFiles = new Map<
+  vscode.WebviewPanel,
+  { uri: vscode.Uri; relativePath: string; lastSelfSaveAt: number }
+>();
+
+/** Watcher events within this window of a MarDoc-initiated save are the
+ *  save itself echoing back — not an external change worth pushing. */
+const SELF_SAVE_SUPPRESS_MS = 1500;
 
 /**
  * Re-read a panel's file from disk and push the fresh content to the
  * app as a `file:content` message (feature 040 in the app repo).
+ * `reason` tells the app whether this was pushed by the file watcher
+ * ("watch" — the app skips it if the user has unsaved edits) or
+ * explicitly requested ("request" — always applies).
  */
-async function reloadPanelFile(panel: vscode.WebviewPanel): Promise<void> {
+async function reloadPanelFile(
+  panel: vscode.WebviewPanel,
+  reason: 'watch' | 'request'
+): Promise<void> {
   const file = panelFiles.get(panel);
-  if (!file) return;
+  if (!file) {
+    console.log('[MarDoc reload] no file tracked for this panel — nothing to reload');
+    return;
+  }
   try {
     const bytes = await vscode.workspace.fs.readFile(file.uri);
+    console.log(`[MarDoc reload] pushing file:content (${reason}) for ${file.relativePath} (${bytes.byteLength} bytes)`);
     panel.webview.postMessage({
       type: 'file:content',
+      reason,
       filePath: file.relativePath,
       fileName: file.relativePath.split('/').pop() ?? 'untitled',
       fileContent: Buffer.from(bytes).toString('utf-8'),
@@ -51,8 +69,36 @@ function setupPanel(
     baseUri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
 
   if (fileInfo) {
-    panelFiles.set(panel, fileInfo);
-    panel.onDidDispose(() => panelFiles.delete(panel));
+    panelFiles.set(panel, { ...fileInfo, lastSelfSaveAt: 0 });
+
+    // Auto-reload: watch the open file and push fresh content when it
+    // changes on disk (same model as VS Code's built-in Markdown Preview
+    // / Live Preview — the preview follows the file; no keystroke
+    // required). The app side refuses watcher pushes while the user has
+    // unsaved edits, so this can't clobber work in progress.
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(
+        vscode.Uri.joinPath(fileInfo.uri, '..'),
+        fileInfo.uri.path.split('/').pop() ?? '*'
+      )
+    );
+    const onDiskChange = () => {
+      const tracked = panelFiles.get(panel);
+      if (!tracked) return;
+      if (Date.now() - tracked.lastSelfSaveAt < SELF_SAVE_SUPPRESS_MS) {
+        console.log(`[MarDoc reload] watcher event within ${SELF_SAVE_SUPPRESS_MS}ms of MarDoc's own save — skipping`);
+        return;
+      }
+      console.log(`[MarDoc reload] disk change detected for ${fileInfo.relativePath}`);
+      void reloadPanelFile(panel, 'watch');
+    };
+    watcher.onDidChange(onDiskChange);
+    watcher.onDidCreate(onDiskChange);
+
+    panel.onDidDispose(() => {
+      watcher.dispose();
+      panelFiles.delete(panel);
+    });
   }
 
   // Sync VS Code theme changes → iframe
@@ -78,6 +124,10 @@ function setupPanel(
       }
       const fileUri = vscode.Uri.joinPath(base, msg.filePath);
       const bytes = Buffer.from(msg.content, 'utf-8');
+      // Stamp before writing so the watcher event this write triggers is
+      // recognized as our own and not pushed back as an "external" change.
+      const tracked = panelFiles.get(panel);
+      if (tracked) tracked.lastSelfSaveAt = Date.now();
       await vscode.workspace.fs.writeFile(fileUri, bytes);
       vscode.window.showInformationMessage(`Saved ${msg.filePath}`);
     }
@@ -124,10 +174,11 @@ function setupPanel(
       panel.dispose();
     }
 
-    // Reload bridge: the iframe catches Ctrl/Cmd+Shift+R and asks for
-    // the file's current disk content.
+    // Reload bridge: the app asks (button, palette, or Ctrl/Cmd+Shift+R)
+    // for the file's current disk content.
     if (msg.type === 'file:reload') {
-      await reloadPanelFile(panel);
+      console.log('[MarDoc reload] file:reload received from app');
+      await reloadPanelFile(panel, 'request');
     }
   });
 }
@@ -246,16 +297,19 @@ export function activate(context: vscode.ExtensionContext) {
     setupPanel(panel, context, baseUri, { uri: fileUri, relativePath });
   });
 
-  // Command: re-read the active panel's file from disk. Bound to
-  // Ctrl/Cmd+Shift+R while a MarDoc panel is active; the in-iframe
-  // keydown handler covers the same chord when focus is inside the app.
+  // Command: re-read the active panel's file from disk. Reached from the
+  // panel's title-bar refresh icon (the reliable path — pure VS Code, no
+  // key capture involved), the command palette, and the Ctrl/Cmd+Shift+R
+  // keybinding while a MarDoc panel is active. The in-iframe keydown
+  // handler covers the same chord when focus is inside the app.
   const reloadCommand = vscode.commands.registerCommand('mardoc.reloadFile', async () => {
     const active = [...panelFiles.keys()].find((p) => p.active);
+    console.log(`[MarDoc reload] mardoc.reloadFile invoked — active file panel: ${active ? panelFiles.get(active)?.relativePath : 'none'}`);
     if (!active) {
       vscode.window.showInformationMessage('No active MarDoc file panel to reload.');
       return;
     }
-    await reloadPanelFile(active);
+    await reloadPanelFile(active, 'request');
   });
 
   context.subscriptions.push(command, openFileCommand, reloadCommand);
@@ -318,6 +372,10 @@ function getWebviewHtml(initPayload: string, hash: string, query: string, appBas
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (!msg || !msg.type) return;
+
+      if (msg.type === 'file:reload' || msg.type === 'file:content') {
+        console.log('[MarDoc reload] wrapper forwarding ' + msg.type);
+      }
 
       if (msg.type === 'ready') {
         sendInit();
